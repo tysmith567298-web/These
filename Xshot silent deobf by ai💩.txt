@@ -1,0 +1,256 @@
+--[[
+%=%=%=%=%=%==%=%=%=%=%
+Deobfuscated by tuff ai💩 %=%=%=%=%=%==%=%=%=%=%
+]]
+
+-- Adonis bypass
+loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-adonis-bypass-76087"))()
+
+-- Fetching external Linoria UI Library files
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/mstudio45/LinoriaLib/main/Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/mstudio45/LinoriaLib/main/addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/mstudio45/LinoriaLib/main/addons/SaveManager.lua"))()
+
+-- UI Customization Settings
+Library.AccentColor = Color3.fromRGB(137, 174, 184)
+Library.AccentColorDark = Color3.fromRGB(0, 140, 180)
+Library.ShowCustomCursor = true
+
+-- Window Creation
+local Window = Library:CreateWindow({
+    Title = "Dan FFA Silent Aim | XShot",
+    Center = true,
+    AutoShow = true
+})
+
+-- Service References
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Cheat States
+local CheatSettings = {
+    Enabled = false,
+    Highlight = false,
+    Tracers = false,
+    ShowFOV = false,
+    FOVRadius = 0
+}
+
+-- UI Tabs & Groups
+local MainTab = Window:AddTab("Silent Aim")
+local SettingsTab = Window:AddTab("UI Settings")
+local MainGroup = MainTab:AddLeftGroupbox("Main")
+
+-- Visual Drawings (FOV Circle & Tracers Line)
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1
+FOVCircle.Color = Library.AccentColor
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+
+local TracerLine = Drawing.new("Line")
+TracerLine.Thickness = 1
+TracerLine.Color = Library.AccentColor
+TracerLine.Transparency = 1
+TracerLine.Visible = false
+
+local CurrentTarget = nil
+local ClosestPlayer = nil
+
+-- Render Loops: Handles UI Positioning and Target Tracking
+RunService.Heartbeat:Connect(function()
+    local ViewportCenter = Camera.ViewportSize / 2
+    FOVCircle.Position = ViewportCenter
+    FOVCircle.Radius = CheatSettings.FOVRadius
+    FOVCircle.Visible = CheatSettings.ShowFOV and (CheatSettings.FOVRadius > 0)
+
+    if CheatSettings.Tracers and CurrentTarget then
+        local ScreenPos, OnScreen = Camera:WorldToViewportPoint(CurrentTarget.Position)
+        if OnScreen then
+            TracerLine.From = ViewportCenter
+            TracerLine.To = Vector2.new(ScreenPos.X, ScreenPos.Y)
+            TracerLine.Visible = true
+        else
+            TracerLine.Visible = false
+        end
+    else
+        TracerLine.Visible = false
+    end
+end)
+
+-- Target Selection Loop: Finds closest target to center inside the FOV
+RunService.RenderStepped:Connect(function()
+    local MaxDistance = math.huge
+    local ViewportCenter = Camera.ViewportSize / 2
+    ClosestPlayer = nil
+    CurrentTarget = nil
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local TargetPart = player.Character:FindFirstChild("HumanoidRootPart")
+            local Humanoid = player.Character:FindFirstChild("Humanoid")
+
+            if TargetPart and Humanoid and Humanoid.Health > 0 then
+                local ScreenPos, OnScreen = Camera:WorldToViewportPoint(TargetPart.Position)
+                if OnScreen then
+                    local DistFromMouse = (Vector2.new(ScreenPos.X, ScreenPos.Y) - ViewportCenter).Magnitude
+                    if DistFromMouse < MaxDistance and (CheatSettings.FOVRadius == 0 or DistFromMouse <= CheatSettings.FOVRadius) then
+                        MaxDistance = DistFromMouse
+                        ClosestPlayer = player
+                        CurrentTarget = TargetPart
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Weapon Detection Setup
+local CurrentWeapon = nil
+LocalPlayer.CharacterAdded:Connect(function(Character)
+    Character.ChildAdded:Connect(function(Child)
+        if Child:IsA("Tool") then CurrentWeapon = Child.Name end
+    end)
+    Character.ChildRemoved:Connect(function(Child)
+        if Child:IsA("Tool") then CurrentWeapon = nil end
+    end)
+end)
+
+if LocalPlayer.Character then
+    for _, child in ipairs(LocalPlayer.Character:GetChildren()) do
+        if child:IsA("Tool") then
+            CurrentWeapon = child.Name
+            break
+        end
+    end
+end
+
+-- Calculation Helper for Shot Direction (with automated spread simulation)
+local function GetShotDirection(Origin, TargetPos, SpreadFactor)
+    local Dir = (TargetPos - Origin).Unit
+    if SpreadFactor and SpreadFactor > 0 then
+        local SpreadModifier = SpreadFactor * ((TargetPos - Origin).Magnitude / 100)
+        local SpreadX = (math.random() * 2 - 1) * SpreadModifier
+        local SpreadY = (math.random() * 2 - 1) * SpreadModifier
+        local SpreadZ = (math.random() * 2 - 1) * SpreadModifier
+        
+        Dir = ((TargetPos + Vector3.new(SpreadX, SpreadY, SpreadZ)) - Origin).Unit
+    end
+    return Dir
+end
+
+-- Hook Path 1: Metatable Hooking
+local OldNamecall
+OldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(Self, ...)
+    local Method = getnamecallmethod()
+    local Args = {...}
+
+    if Method == "Raycast" and Self == Workspace and not checkcaller() and CheatSettings.Enabled and ClosestPlayer and CurrentTarget then
+        local Origin = Args[1]
+        local Direction = Args[2]
+        
+        if Direction then
+            local OriginalLength = Direction.Magnitude
+            if CurrentWeapon == "Double Barrel" or CurrentWeapon == "Tactical Shotgun" then
+                Args[2] = GetShotDirection(Origin, CurrentTarget.Position, 3) * OriginalLength
+            else
+                Args[2] = GetShotDirection(Origin, CurrentTarget.Position) * OriginalLength
+            end
+        end
+        
+        return OldNamecall(Self, unpack(Args))
+    end
+
+    return OldNamecall(Self, ...)
+end))
+
+-- Hook Path 2: Index/Function Hooking (Handles Shiftlock OFF)
+local OldRaycast
+OldRaycast = hookfunction(workspace.Raycast, newcclosure(function(Self, Origin, Direction, Params)
+    if not checkcaller() and CheatSettings.Enabled and ClosestPlayer and CurrentTarget then
+        if Direction then
+            local OriginalLength = Direction.Magnitude
+            local NewDirection
+            
+            if CurrentWeapon == "Double Barrel" or CurrentWeapon == "Tactical Shotgun" then
+                NewDirection = GetShotDirection(Origin, CurrentTarget.Position, 3) * OriginalLength
+            else
+                NewDirection = GetShotDirection(Origin, CurrentTarget.Position) * OriginalLength
+            end
+            
+            return OldRaycast(Self, Origin, NewDirection, Params)
+        end
+    end
+
+    return OldRaycast(Self, Origin, Direction, Params)
+end))
+
+-- UI Controls Config
+MainGroup:AddToggle("EnableSilentAim", {
+    Text = "Enable Silent Aim",
+    Default = false,
+    Callback = function(Value) CheatSettings.Enabled = Value end
+})
+
+MainGroup:AddToggle("EnableHighlight", {
+    Text = "Enable Highlight",
+    Default = false,
+    Callback = function(Value) CheatSettings.Highlight = Value end
+})
+
+MainGroup:AddToggle("EnableTracers", {
+    Text = "Enable Tracers",
+    Default = false,
+    Callback = function(Value) CheatSettings.Tracers = Value end
+})
+
+MainGroup:AddToggle("EnableFOV", {
+    Text = "Enable FOV",
+    Default = false,
+    Callback = function(Value) CheatSettings.ShowFOV = Value end
+})
+
+MainGroup:AddSlider("FOVRadius", {
+    Text = "FOV Radius",
+    Min = 0,
+    Max = 500,
+    Default = 50,
+    Rounding = 0,
+    Callback = function(Value) CheatSettings.FOVRadius = Value end
+})
+
+SettingsTab:AddLabel("Menu Keybind"):AddKeyPicker("MenuKeybind", {
+    Text = "Menu Keybind",
+    Default = "RightShift",
+    NoUI = true
+})
+
+-- Script Unloading Mechanic (Cleans up both hooks smoothly)
+SettingsTab:AddButton("Unload", function()
+    if OldNamecall then
+        hookmetamethod(game, "__namecall", OldNamecall)
+    end
+    if OldRaycast then
+        hookfunction(workspace.Raycast, OldRaycast)
+    end
+    FOVCircle:Remove()
+    TracerLine:Remove()
+    Library:Unload()
+end)
+
+-- Finalizing Library Attachments
+Library.ToggleKeybind = Options.MenuKeybind
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+
+SaveManager:SetFolder("DanXShot")
+ThemeManager:SetFolder("DanXShot")
+
+SaveManager:BuildConfigSection(SettingsTab)
+ThemeManager:ApplyToTab(SettingsTab)
+SaveManager:LoadAutoloadConfig()
